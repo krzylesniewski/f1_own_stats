@@ -17,7 +17,7 @@ createRoot(document.getElementById('root')!).render(
         dehydrateOptions: { shouldDehydrateQuery: (q) => q.state.status === 'success' },
       }}
     >
-      <BrowserRouter>
+      <BrowserRouter basename="/f1_own_stats">
         <App />
       </BrowserRouter>
     </PersistQueryClientProvider>
