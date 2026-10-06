@@ -5,8 +5,5 @@ import { defineConfig } from 'vite'
 // https://vite.dev/config/
 export default defineConfig({
   base: '/f1_own_stats/',
-  build: {
-    outDir: 'gh-pages',
-  },
   plugins: [react(), tailwindcss()],
 })

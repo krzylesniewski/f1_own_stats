@@ -1,13 +1,15 @@
-import { Link, useParams } from 'react-router-dom'
+import { Link, Navigate, useParams } from 'react-router-dom'
 import { useMeeting, useSessions } from '../api/queries'
+import QueryFeedback from '../components/QueryFeedback'
 import { formatDate, formatDateTime } from '../format'
 
 export default function MeetingPage() {
   const { year, meetingKey } = useParams()
   const key = Number(meetingKey)
-  const { data: meeting, isLoading: meetingLoading, error: meetingError } = useMeeting(key)
-  const { data: sessions, isLoading: sessionsLoading, error: sessionsError } = useSessions(key)
-  const error = meetingError ?? sessionsError
+  const { data: meeting, isPending: meetingLoading, error: meetingError, refetch: retryMeeting } = useMeeting(key)
+  const { data: sessions, isPending: sessionsLoading, error: sessionsError, refetch: retrySessions } = useSessions(key)
+
+  if (meeting === null || (meeting && meeting.year !== Number(year))) return <Navigate to="/" replace />
 
   return (
     <>
@@ -15,10 +17,12 @@ export default function MeetingPage() {
         ‹ Sezon {year}
       </Link>
 
-      {meetingLoading && <p className="mt-6 text-neutral-400">Ładowanie…</p>}
-      {error && <p className="mt-6 text-red-400">{error.message}</p>}
-      {meeting === null && <p className="mt-6 text-neutral-400">Nie znaleziono weekendu.</p>}
-
+      <QueryFeedback
+        loading={meetingLoading}
+        error={meetingError}
+        retry={() => retryMeeting()}
+        loadingText="Ładowanie weekendu…"
+      />
       {meeting && (
         <header className="mt-4 flex items-start justify-between gap-4">
           <div>
@@ -40,15 +44,21 @@ export default function MeetingPage() {
       )}
 
       <h2 className="mt-8 text-sm font-medium uppercase tracking-wide text-neutral-400">Sesje</h2>
-      {sessionsLoading && <p className="mt-3 text-neutral-400">Ładowanie…</p>}
-      {sessions?.length === 0 && <p className="mt-3 text-neutral-400">Brak sesji.</p>}
+      <QueryFeedback
+        loading={sessionsLoading}
+        error={sessionsError}
+        retry={() => retrySessions()}
+        empty={sessions?.length === 0}
+        loadingText="Ładowanie sesji…"
+        emptyText="Brak sesji."
+      />
 
       <ul className="mt-2 divide-y divide-neutral-800">
         {sessions?.map((s) => (
           <li key={s.session_key}>
             <Link
               to={`/${year}/${meetingKey}/${s.session_key}`}
-              className="-mx-3 flex items-center justify-between gap-4 rounded-md px-3 py-3 hover:bg-neutral-900"
+              className="-mx-3 flex flex-col gap-1 rounded-md px-3 py-3 hover:bg-neutral-900 focus-visible:outline-2 focus-visible:outline-sky-400 sm:flex-row sm:items-center sm:justify-between"
             >
               <span className={s.is_cancelled ? 'text-neutral-500 line-through' : ''}>
                 {s.session_name}

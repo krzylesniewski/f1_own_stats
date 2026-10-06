@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { useLaps, useLapTelemetry } from '../../api/queries'
 import type { Driver, SessionResult } from '../../api/types'
 import { formatDuration } from '../../format'
@@ -7,9 +8,11 @@ import { DASH_B, driverColors } from './colors'
 import LapCharts from './LapCharts'
 import SectorTable from './SectorTable'
 import TrackMap from './TrackMap'
+import QueryFeedback from '../QueryFeedback'
 
 interface Props {
   sessionKey: number
+  dateEnd: string
   results: SessionResult[]
   drivers: Map<number, Driver>
 }
@@ -18,20 +21,29 @@ const SECTION_TITLE = 'mt-8 text-sm font-medium uppercase tracking-wide text-neu
 const SELECT =
   'rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-100 disabled:opacity-50'
 
-export default function QualiTelemetry({ sessionKey, results, drivers }: Props) {
-  const { data: laps, isLoading, error } = useLaps(sessionKey)
+export default function QualiTelemetry({ sessionKey, dateEnd, results, drivers }: Props) {
+  const { data: laps, isPending, error, refetch } = useLaps(sessionKey, dateEnd)
+  const [searchParams, setSearchParams] = useSearchParams()
 
   // Drivers in classification order, limited to those with a usable timed lap.
-  const options = useMemo(
-    () => (laps ? results.map((r) => r.driver_number).filter((n) => bestLap(laps, n)) : []),
-    [laps, results],
-  )
-  const [picked, setPicked] = useState<{ A?: number; B?: number }>({})
-  const numA = picked.A ?? options[0]
-  const numB = picked.B ?? options.find((n) => n !== numA)
+  const options = useMemo(() => {
+    if (!laps) return []
+    const classified = results.map((r) => r.driver_number)
+    const numbers = classified.length ? classified : [...new Set(laps.map((l) => l.driver_number))]
+    return numbers
+      .filter((n) => bestLap(laps, n))
+      .sort((a, b) => {
+        if (classified.length) return classified.indexOf(a) - classified.indexOf(b)
+        return bestLap(laps, a)!.lap_duration! - bestLap(laps, b)!.lap_duration!
+      })
+  }, [laps, results])
+  const requestedA = Number(searchParams.get('a'))
+  const requestedB = Number(searchParams.get('b'))
+  const numA = options.includes(requestedA) ? requestedA : options[0]
+  const numB = options.includes(requestedB) && requestedB !== numA ? requestedB : options.find((n) => n !== numA)
 
-  const lapA = laps && numA !== undefined ? bestLap(laps, numA) : undefined
-  const lapB = laps && numB !== undefined ? bestLap(laps, numB) : undefined
+  const lapA = useMemo(() => (laps && numA !== undefined ? bestLap(laps, numA) : undefined), [laps, numA])
+  const lapB = useMemo(() => (laps && numB !== undefined ? bestLap(laps, numB) : undefined), [laps, numB])
   const telA = useLapTelemetry(lapA)
   const telB = useLapTelemetry(lapB)
 
@@ -40,8 +52,8 @@ export default function QualiTelemetry({ sessionKey, results, drivers }: Props) 
     [lapA, lapB, telA.data, telB.data],
   )
 
-  if (isLoading) return <p className="mt-6 text-neutral-400">Ładowanie okrążeń…</p>
-  if (error) return <p className="mt-6 text-red-400">{error.message}</p>
+  if (isPending || error)
+    return <QueryFeedback loading={isPending} error={error} retry={() => refetch()} loadingText="Ładowanie okrążeń…" />
   if (!laps?.length || options.length < 2) return <p className="mt-6 text-neutral-400">Brak danych o okrążeniach.</p>
 
   const driverA = numA !== undefined ? drivers.get(numA) : undefined
@@ -68,7 +80,12 @@ export default function QualiTelemetry({ sessionKey, results, drivers }: Props) 
       <select
         className={SELECT}
         value={slot === 'A' ? numA : numB}
-        onChange={(e) => setPicked({ A: numA, B: numB, [slot]: Number(e.target.value) })}
+        onChange={(e) => {
+          const next = new URLSearchParams(searchParams)
+          next.set('a', String(slot === 'A' ? Number(e.target.value) : numA))
+          next.set('b', String(slot === 'B' ? Number(e.target.value) : numB))
+          setSearchParams(next)
+        }}
       >
         {options.map((n) => (
           <option key={n} value={n} disabled={n === (slot === 'A' ? numB : numA)}>
@@ -94,8 +111,15 @@ export default function QualiTelemetry({ sessionKey, results, drivers }: Props) 
         )}
       </div>
 
-      {telemetryLoading && <p className="mt-6 text-neutral-400">Ładowanie telemetrii…</p>}
-      {telemetryError && <p className="mt-6 text-red-400">{telemetryError.message}</p>}
+      <QueryFeedback
+        loading={telemetryLoading}
+        error={telemetryError}
+        retry={() => {
+          void telA.refetch()
+          void telB.refetch()
+        }}
+        loadingText="Ładowanie telemetrii…"
+      />
       {!telemetryLoading && !telemetryError && !comparison && (
         <p className="mt-6 text-neutral-400">Brak telemetrii dla tych okrążeń.</p>
       )}

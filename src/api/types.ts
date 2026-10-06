@@ -99,3 +99,81 @@ export interface Location {
   y: number
   z: number
 }
+
+export interface Stint {
+  driver_number: number
+  session_key: number
+  stint_number: number
+  compound: string
+  lap_start: number
+  lap_end: number | null
+  tyre_age_at_start: number | null
+}
+
+export interface PitStop {
+  driver_number: number
+  session_key: number
+  lap_number: number
+  lane_duration: number | null
+  stop_duration: number | null
+}
+
+export interface Position {
+  driver_number: number
+  session_key: number
+  date: string
+  position: number
+}
+
+export interface Interval {
+  driver_number: number
+  session_key: number
+  date: string
+  gap_to_leader: number | string | null
+  interval: number | string | null
+}
+
+export interface RaceControl {
+  session_key: number
+  date: string
+  category: string
+  message: string
+  flag: string | null
+  lap_number: number | null
+  driver_number: number | null
+}
+
+export interface Weather {
+  session_key: number
+  date: string
+  air_temperature: number
+  track_temperature: number
+  rainfall: number
+  humidity: number
+}
+
+export interface Overtake {
+  session_key: number
+  date: string
+  overtaking_driver_number: number
+  overtaken_driver_number: number
+  position: number
+}
+
+export interface ChampionshipDriver {
+  driver_number: number
+  session_key: number
+  points_current: number
+  points_start: number
+  position_current: number
+  position_start: number
+}
+
+export interface ChampionshipTeam {
+  team_name: string
+  session_key: number
+  points_current: number
+  points_start: number
+  position_current: number
+  position_start: number
+}

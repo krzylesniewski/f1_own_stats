@@ -1,6 +1,24 @@
 import { useQuery } from '@tanstack/react-query'
 import { get } from './client'
-import type { CarData, Driver, Lap, Location, Meeting, Session, SessionResult, TeamRadio } from './types'
+import type {
+  CarData,
+  ChampionshipDriver,
+  ChampionshipTeam,
+  Driver,
+  Interval,
+  Lap,
+  Location,
+  Meeting,
+  Overtake,
+  PitStop,
+  Position,
+  RaceControl,
+  Session,
+  SessionResult,
+  Stint,
+  TeamRadio,
+  Weather,
+} from './types'
 
 const MINUTE = 60 * 1000
 const HOUR = 60 * MINUTE
@@ -19,11 +37,12 @@ const staleUnlessFinished = (query: { state: { data: unknown } }) => {
   return Date.now() - latestEnd < 2 * DAY ? HOUR : Infinity
 }
 
-/** Results-type data: empty means "not published yet", so retry later; otherwise it's final. */
-const staleUntilPublished = (query: { state: { data: unknown } }) => {
-  const data = query.state.data as unknown[] | null | undefined
-  return data && (!Array.isArray(data) || data.length) ? Infinity : 10 * MINUTE
-}
+/** Session data remains refreshable until the session has finished and corrections have settled. */
+export const sessionStaleTime = (dateEnd?: string) =>
+  dateEnd && Date.now() - Date.parse(dateEnd) > 2 * DAY ? Infinity : 10 * MINUTE
+
+const rowsStaleTime = (query: { state: { data: unknown } }, dateEnd?: string) =>
+  Array.isArray(query.state.data) && query.state.data.length > 0 ? sessionStaleTime(dateEnd) : 10 * MINUTE
 
 export const useMeetings = (year: number) =>
   useQuery({
@@ -40,20 +59,27 @@ export const useSessions = (meetingKey: number | undefined) =>
     enabled: meetingKey !== undefined,
   })
 
-export const useDrivers = (sessionKey: number | undefined) =>
+export const useRaceSessions = (year: number) =>
+  useQuery({
+    queryKey: ['race_sessions', year],
+    queryFn: () => get<Session>('sessions', { year, session_type: 'Race' }),
+    staleTime: staleUnlessFinished,
+  })
+
+export const useDrivers = (sessionKey: number | undefined, dateEnd?: string) =>
   useQuery({
     queryKey: ['drivers', sessionKey],
     queryFn: () => get<Driver>('drivers', { session_key: sessionKey }),
-    staleTime: staleUntilPublished,
+    staleTime: (query) => rowsStaleTime(query, dateEnd),
     enabled: sessionKey !== undefined,
   })
 
-export const useSessionResult = (sessionKey: number | undefined) =>
+export const useSessionResult = (sessionKey: number | undefined, dateEnd?: string, ready = true) =>
   useQuery({
     queryKey: ['session_result', sessionKey],
     queryFn: () => get<SessionResult>('session_result', { session_key: sessionKey }),
-    staleTime: staleUntilPublished,
-    enabled: sessionKey !== undefined,
+    staleTime: (query) => rowsStaleTime(query, dateEnd),
+    enabled: sessionKey !== undefined && !!dateEnd && ready,
   })
 
 export const useMeeting = (meetingKey: number | undefined) =>
@@ -72,19 +98,19 @@ export const useSession = (sessionKey: number | undefined) =>
     enabled: sessionKey !== undefined,
   })
 
-export const useTeamRadio = (sessionKey: number | undefined, driverNumbers: number[]) =>
+export const useTeamRadio = (sessionKey: number | undefined, driverNumbers: number[], dateEnd?: string) =>
   useQuery({
     queryKey: ['team_radio', sessionKey, driverNumbers],
     queryFn: () => get<TeamRadio>('team_radio', { session_key: sessionKey, driver_number: driverNumbers }),
-    staleTime: staleUntilPublished,
+    staleTime: (query) => rowsStaleTime(query, dateEnd),
     enabled: sessionKey !== undefined && driverNumbers.length > 0,
   })
 
-export const useLaps = (sessionKey: number | undefined) =>
+export const useLaps = (sessionKey: number | undefined, dateEnd?: string) =>
   useQuery({
     queryKey: ['laps', sessionKey],
     queryFn: () => get<Lap>('laps', { session_key: sessionKey }),
-    staleTime: staleUntilPublished,
+    staleTime: (query) => rowsStaleTime(query, dateEnd),
     enabled: sessionKey !== undefined,
   })
 
@@ -102,6 +128,43 @@ export const useLapTelemetry = (lap: Lap | undefined) => {
     enabled: params !== undefined,
   })
 }
+
+const useSessionRows = <T>(
+  endpoint: string,
+  key: string,
+  sessionKey: number | undefined,
+  dateEnd?: string,
+  extra?: Record<string, number>,
+) =>
+  useQuery({
+    queryKey: [key, sessionKey, extra],
+    queryFn: () => get<T>(endpoint, { session_key: sessionKey, ...extra }),
+    staleTime: (query) => rowsStaleTime(query, dateEnd),
+    enabled: sessionKey !== undefined,
+  })
+
+export const useStints = (key: number | undefined, end?: string) => useSessionRows<Stint>('stints', 'stints', key, end)
+export const usePitStops = (key: number | undefined, end?: string) => useSessionRows<PitStop>('pit', 'pit', key, end)
+export const usePositions = (key: number | undefined, end?: string) =>
+  useSessionRows<Position>('position', 'position', key, end)
+export const useIntervals = (key: number | undefined, driverNumber: number | undefined, end?: string) =>
+  useSessionRows<Interval>(
+    'intervals',
+    'intervals',
+    key && driverNumber ? key : undefined,
+    end,
+    driverNumber ? { driver_number: driverNumber } : undefined,
+  )
+export const useRaceControl = (key: number | undefined, end?: string) =>
+  useSessionRows<RaceControl>('race_control', 'race_control', key, end)
+export const useWeather = (key: number | undefined, end?: string) =>
+  useSessionRows<Weather>('weather', 'weather', key, end)
+export const useOvertakes = (key: number | undefined, end?: string) =>
+  useSessionRows<Overtake>('overtakes', 'overtakes', key, end)
+export const useChampionshipDrivers = (key: number | undefined, end?: string) =>
+  useSessionRows<ChampionshipDriver>('championship_drivers', 'championship_drivers', key, end)
+export const useChampionshipTeams = (key: number | undefined, end?: string) =>
+  useSessionRows<ChampionshipTeam>('championship_teams', 'championship_teams', key, end)
 
 // lap date_start is approximate, so pad the window and let the caller trim.
 function lapWindow(dateStart: string, duration: number) {

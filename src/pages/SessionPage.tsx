@@ -1,10 +1,15 @@
-import { Link, useParams, useSearchParams } from 'react-router-dom'
+import { lazy, Suspense, useEffect, useState } from 'react'
+import { Link, Navigate, useParams, useSearchParams } from 'react-router-dom'
 import { useDrivers, useMeeting, useSession, useSessionResult, useTeamRadio } from '../api/queries'
 import type { Driver, SessionResult } from '../api/types'
-import QualiTelemetry from '../components/telemetry/QualiTelemetry'
+import QueryFeedback from '../components/QueryFeedback'
 import { formatDateTime, formatDuration, formatGap, formatTime } from '../format'
 
 const QUALI_PARTS = ['Q1', 'Q2', 'Q3']
+const QualiTelemetry = lazy(() => import('../components/telemetry/QualiTelemetry'))
+const Strategy = lazy(() => import('../components/race/Strategy'))
+const RaceProgress = lazy(() => import('../components/race/RaceProgress'))
+const WeatherLaps = lazy(() => import('../components/race/WeatherLaps'))
 
 function statusLabel(r: SessionResult) {
   if (r.dsq) return 'DSQ'
@@ -34,10 +39,22 @@ function DriverCell({ driver, number }: { driver?: Driver; number: number }) {
 export default function SessionPage() {
   const { year, meetingKey, sessionKey } = useParams()
   const key = Number(sessionKey)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
   const { data: meeting } = useMeeting(Number(meetingKey))
-  const { data: session, error: sessionError } = useSession(key)
-  const { data: results, isLoading: resultsLoading, error: resultsError } = useSessionResult(key)
-  const { data: drivers } = useDrivers(key)
+  const { data: session, isPending: sessionLoading, error: sessionError, refetch: retrySession } = useSession(key)
+  const sessionMatches = !!session && session.meeting_key === Number(meetingKey) && session.year === Number(year)
+  const isUpcoming = !!session && now < Date.parse(session.date_end)
+  const {
+    data: results,
+    isPending: resultsLoading,
+    error: resultsError,
+    refetch: retryResults,
+  } = useSessionResult(key, session?.date_end, sessionMatches && !isUpcoming)
+  const { data: drivers } = useDrivers(sessionMatches && !isUpcoming ? key : undefined, session?.date_end)
 
   const driverByNumber = new Map(drivers?.map((d) => [d.driver_number, d]))
   const sorted = [...(results ?? [])].sort((a, b) => (a.position ?? Infinity) - (b.position ?? Infinity))
@@ -45,14 +62,39 @@ export default function SessionPage() {
   const hasPoints = sorted.some((r) => r.points !== undefined)
 
   const top3 = sorted.filter((r) => r.position !== null && r.position <= 3).map((r) => r.driver_number)
-  const { data: radio, isLoading: radioLoading, error: radioError } = useTeamRadio(key, top3)
+  const {
+    data: radio,
+    isPending: radioLoading,
+    error: radioError,
+    refetch: retryRadio,
+  } = useTeamRadio(sessionMatches ? key : undefined, top3, session?.date_end)
 
-  const error = sessionError ?? resultsError
-  const [searchParams, setSearchParams] = useSearchParams()
-  const hasTelemetryTab = session?.session_type === 'Qualifying'
-  const tab = hasTelemetryTab && searchParams.get('tab') === 'telemetry' ? 'telemetry' : 'results'
+  const [searchParams] = useSearchParams()
+  const [copied, setCopied] = useState(false)
+  const hasTelemetryTab = session?.session_type === 'Qualifying' && !isUpcoming
+  const hasRaceTabs = session?.session_type === 'Race' && !isUpcoming
+  const requested = searchParams.get('tab')
+  const tab =
+    hasTelemetryTab && requested === 'telemetry'
+      ? 'telemetry'
+      : hasRaceTabs && ['strategy', 'race', 'weather'].includes(requested ?? '')
+        ? requested
+        : 'results'
+  const tabs = [
+    { id: 'results', label: 'Wyniki' },
+    ...(hasTelemetryTab ? [{ id: 'telemetry', label: 'Telemetria' }] : []),
+    ...(hasRaceTabs
+      ? [
+          { id: 'strategy', label: 'Strategia' },
+          { id: 'race', label: 'Przebieg' },
+          { id: 'weather', label: 'Pogoda' },
+        ]
+      : []),
+  ]
   const tabClass = (active: boolean) =>
     `-mb-px border-b-2 px-1 pb-2 text-sm ${active ? 'border-neutral-100 text-neutral-100' : 'border-transparent text-neutral-400 hover:text-neutral-200'}`
+
+  if (session === null || (session && !sessionMatches)) return <Navigate to="/" replace />
 
   return (
     <>
@@ -60,9 +102,12 @@ export default function SessionPage() {
         ‹ {meeting?.meeting_name ?? 'Weekend'}
       </Link>
 
-      {error && <p className="mt-6 text-red-400">{error.message}</p>}
-      {session === null && <p className="mt-6 text-neutral-400">Nie znaleziono sesji.</p>}
-
+      <QueryFeedback
+        loading={sessionLoading}
+        error={sessionError}
+        retry={() => retrySession()}
+        loadingText="Ładowanie sesji…"
+      />
       {session && (
         <header className="mt-4">
           <h1 className="text-2xl font-semibold">{session.session_name}</h1>
@@ -72,24 +117,84 @@ export default function SessionPage() {
         </header>
       )}
 
-      {hasTelemetryTab && (
-        <nav className="mt-6 flex gap-6 border-b border-neutral-800">
-          <button className={tabClass(tab === 'results')} onClick={() => setSearchParams({})}>
-            Wyniki
-          </button>
-          <button className={tabClass(tab === 'telemetry')} onClick={() => setSearchParams({ tab: 'telemetry' })}>
-            Telemetria
-          </button>
+      {session && (
+        <nav aria-label="Widoki sesji" className="mt-6 flex flex-wrap gap-x-6 gap-y-2 border-b border-neutral-800">
+          {tabs.map((item) => (
+            <Link
+              key={item.id}
+              to={item.id === 'results' ? '.' : `?tab=${item.id}`}
+              aria-current={tab === item.id ? 'page' : undefined}
+              className={tabClass(tab === item.id)}
+            >
+              {item.label}
+            </Link>
+          ))}
         </nav>
       )}
 
-      {tab === 'telemetry' && <QualiTelemetry sessionKey={key} results={sorted} drivers={driverByNumber} />}
+      {session && (
+        <div className="mt-3 flex justify-end">
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(window.location.href)
+                setCopied(true)
+              } catch {
+                setCopied(false)
+              }
+            }}
+            className="rounded border border-neutral-700 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-900"
+          >
+            {copied ? 'Link skopiowany' : 'Kopiuj link do widoku'}
+          </button>
+        </div>
+      )}
 
-      {tab === 'results' && (
+      <Suspense
+        fallback={
+          <p className="mt-6 text-sm text-neutral-400" role="status">
+            Ładowanie widoku…
+          </p>
+        }
+      >
+        {tab === 'telemetry' && session && (
+          <QualiTelemetry sessionKey={key} dateEnd={session.date_end} results={sorted} drivers={driverByNumber} />
+        )}
+        {tab === 'strategy' && session && (
+          <Strategy sessionKey={key} dateEnd={session.date_end} results={sorted} drivers={driverByNumber} />
+        )}
+        {tab === 'race' && session && (
+          <RaceProgress
+            sessionKey={key}
+            dateStart={session.date_start}
+            dateEnd={session.date_end}
+            results={sorted}
+            drivers={driverByNumber}
+          />
+        )}
+        {tab === 'weather' && session && (
+          <WeatherLaps sessionKey={key} dateEnd={session.date_end} results={sorted} drivers={driverByNumber} />
+        )}
+      </Suspense>
+
+      {tab === 'results' && session && (
         <>
           <h2 className="mt-8 text-sm font-medium uppercase tracking-wide text-neutral-400">Wyniki</h2>
-          {resultsLoading && <p className="mt-3 text-neutral-400">Ładowanie…</p>}
-          {results?.length === 0 && <p className="mt-3 text-neutral-400">Brak wyników dla tej sesji.</p>}
+          {isUpcoming ? (
+            <p className="mt-3 text-sm text-neutral-400">
+              Wyniki pojawią się po zakończeniu sesji. Darmowe API OpenF1 udostępnia dane historyczne, bez dostępu live.
+            </p>
+          ) : (
+            <QueryFeedback
+              loading={resultsLoading}
+              error={resultsError}
+              retry={() => retryResults()}
+              empty={results?.length === 0}
+              loadingText="Ładowanie wyników…"
+              emptyText="Wyniki nie zostały jeszcze opublikowane."
+            />
+          )}
 
           {sorted.length > 0 && (
             <div className="mt-2 overflow-x-auto">
@@ -160,8 +265,12 @@ export default function SessionPage() {
           {top3.length > 0 && (
             <>
               <h2 className="mt-10 text-sm font-medium uppercase tracking-wide text-neutral-400">Team radio · top 3</h2>
-              {radioLoading && <p className="mt-3 text-neutral-400">Ładowanie…</p>}
-              {radioError && <p className="mt-3 text-red-400">{radioError.message}</p>}
+              <QueryFeedback
+                loading={radioLoading}
+                error={radioError}
+                retry={() => retryRadio()}
+                loadingText="Ładowanie nagrań…"
+              />
 
               <div className="mt-3 grid gap-4 md:grid-cols-3">
                 {top3.map((number, i) => {

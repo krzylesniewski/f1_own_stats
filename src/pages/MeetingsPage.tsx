@@ -1,10 +1,9 @@
-import { useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useState } from 'react'
+import { Link, useParams } from 'react-router-dom'
 import { useMeetings } from '../api/queries'
+import QueryFeedback from '../components/QueryFeedback'
 import type { Meeting } from '../api/types'
-import { CURRENT_YEAR, FIRST_YEAR, formatDate } from '../format'
-
-const YEARS = Array.from({ length: CURRENT_YEAR - FIRST_YEAR + 1 }, (_, i) => CURRENT_YEAR - i)
+import { CURRENT_YEAR, formatDate } from '../format'
 
 type Status = 'done' | 'live' | 'upcoming' | 'cancelled'
 
@@ -23,38 +22,32 @@ function meetingStatus(m: Meeting, now: number): Status {
 }
 
 export default function MeetingsPage() {
-  const year = Number(useParams().year)
-  const navigate = useNavigate()
-  const { data: meetings, isLoading, error } = useMeetings(year)
-  const [now] = useState(() => Date.now())
-  const nextKey = meetings?.find((m) => meetingStatus(m, now) === 'upcoming')?.meeting_key
+  const year = Number(useParams().year ?? CURRENT_YEAR)
+  const { data: meetings, isPending, error, refetch } = useMeetings(year)
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000)
+    return () => window.clearInterval(id)
+  }, [])
+  const nextKey = [...(meetings ?? [])]
+    .sort((a, b) => a.date_start.localeCompare(b.date_start))
+    .find((m) => meetingStatus(m, now) === 'upcoming')?.meeting_key
 
   return (
     <>
-      <header className="flex items-end justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold">F1 Stats</h1>
-          <p className="mt-1 text-sm text-neutral-400">Dane z OpenF1</p>
-        </div>
-        <label className="flex items-center gap-2 text-sm text-neutral-400">
-          Sezon
-          <select
-            value={year}
-            onChange={(e) => navigate(`/${e.target.value}`)}
-            className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-neutral-100"
-          >
-            {YEARS.map((y) => (
-              <option key={y} value={y}>
-                {y}
-              </option>
-            ))}
-          </select>
-        </label>
+      <header>
+        <h1 className="text-2xl font-semibold">Sezon {year}</h1>
+        <p className="mt-1 text-sm text-neutral-400">Weekendy Formuły 1 · dane z OpenF1</p>
       </header>
 
-      {isLoading && <p className="mt-6 text-neutral-400">Ładowanie…</p>}
-      {error && <p className="mt-6 text-red-400">{error.message}</p>}
-      {meetings?.length === 0 && <p className="mt-6 text-neutral-400">Brak weekendów w tym sezonie.</p>}
+      <QueryFeedback
+        loading={isPending}
+        error={error}
+        retry={() => refetch()}
+        empty={meetings?.length === 0}
+        loadingText="Ładowanie weekendów…"
+        emptyText="Brak weekendów w tym sezonie."
+      />
 
       <ul className="mt-6 divide-y divide-neutral-800">
         {meetings?.map((m) => {
@@ -64,21 +57,21 @@ export default function MeetingsPage() {
             <li key={m.meeting_key}>
               <Link
                 to={`/${year}/${m.meeting_key}`}
-                className="-mx-3 flex items-center justify-between gap-4 rounded-md px-3 py-3 hover:bg-neutral-900"
+                className="-mx-3 flex flex-col gap-2 rounded-md px-3 py-3 hover:bg-neutral-900 focus-visible:outline-2 focus-visible:outline-sky-400 sm:flex-row sm:items-center sm:justify-between"
               >
                 <span className="flex min-w-0 items-center gap-3">
                   <span
-                    className={`w-28 shrink-0 rounded-full border px-2 py-0.5 text-center text-xs ${badge.className}`}
+                    className={`w-24 shrink-0 rounded-full border px-2 py-0.5 text-center text-xs sm:w-28 ${badge.className}`}
                   >
                     {m.meeting_key === nextKey ? 'Następny' : badge.label}
                   </span>
                   <span
-                    className={`truncate ${status === 'cancelled' ? 'text-neutral-500 line-through' : status === 'done' ? 'text-neutral-300' : ''}`}
+                    className={`${status === 'cancelled' ? 'text-neutral-500 line-through' : status === 'done' ? 'text-neutral-300' : ''}`}
                   >
                     {m.meeting_name}
                   </span>
                 </span>
-                <span className="shrink-0 text-sm text-neutral-400">
+                <span className="pl-[6.75rem] text-sm text-neutral-400 sm:shrink-0 sm:pl-0">
                   {m.location} · {formatDate(m.date_start)} <span aria-hidden>›</span>
                 </span>
               </Link>

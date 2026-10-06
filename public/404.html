@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="pl">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Przekierowanie · F1 Stats</title>
+    <script>
+      var base = '/f1_own_stats/'
+      var route = location.pathname.startsWith(base) ? location.pathname.slice(base.length) : ''
+      location.replace(base + '#/' + route + location.search)
+    </script>
+  </head>
+  <body>
+    <p>Przekierowanie do F1 Stats…</p>
+  </body>
+</html>

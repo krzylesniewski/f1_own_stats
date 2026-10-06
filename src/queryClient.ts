@@ -20,8 +20,8 @@ export const queryClient = new QueryClient({
       // past ~24.8 days and fires immediately, which would drop every restored query.
       gcTime: Infinity,
       retry: false, // the API client already retries 429s within the rate limit
-      refetchOnWindowFocus: false,
-      refetchOnReconnect: false,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
     },
   },
 })

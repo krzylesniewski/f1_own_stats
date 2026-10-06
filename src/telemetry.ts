@@ -126,7 +126,8 @@ function anchorToTimingLines(a: Sample[], lapA: Lap, b: Sample[], lapB: Lap): [S
 
   const remap = (samples: Sample[], from: number[]) =>
     samples.map((s) => {
-      const k = Math.max(0, Math.min(from.length - 2, from.findIndex((d) => d > s.d) - 1))
+      const next = from.findIndex((d) => d > s.d)
+      const k = Math.max(0, Math.min(from.length - 2, next === -1 ? from.length - 2 : next - 1))
       const f = (s.d - from[k]) / (from[k + 1] - from[k] || 1)
       return { ...s, d: target[k] + f * (target[k + 1] - target[k]) }
     })

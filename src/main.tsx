@@ -1,7 +1,7 @@
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
-import { BrowserRouter } from 'react-router-dom'
+import { HashRouter } from 'react-router-dom'
 import './index.css'
 import App from './App.tsx'
 import { CACHE_BUSTER, CACHE_MAX_AGE, persister, queryClient } from './queryClient'
@@ -17,9 +17,9 @@ createRoot(document.getElementById('root')!).render(
         dehydrateOptions: { shouldDehydrateQuery: (q) => q.state.status === 'success' },
       }}
     >
-      <BrowserRouter basename="/f1_own_stats">
+      <HashRouter>
         <App />
-      </BrowserRouter>
+      </HashRouter>
     </PersistQueryClientProvider>
   </StrictMode>,
 )
